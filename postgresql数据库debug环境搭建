@@ -1,0 +1,119 @@
+linux下postgresql数据库debug环境搭建
+2012年01月09日 21:27:36 xqy1522 阅读数：2499
+1.准备
+  下载postgresql安装文件，从http://www.postgresql.org/download/下载需要的版本
+
+安装readline（非必须）。
+
+如果需要使用zlib，ssl等则需要先安装zlib，ssl库，不需要使用则可以不安装。
+
+2. 创建用户
+
+groupadd postgres
+
+useradd -g postgres postgres
+
+3.安装
+
+安装什么特别的，就是三板斧 configure，make，make install
+
+我要把pg安装在/data/pg_debug目录下。
+
+       ./configure --prefix=/data/pg_debug/ CFLAGS="-O0" --without-readline --without-zlib
+
+        关于参数可以使用./configure -h查看说明，这里不一一解释。说明下使用的参数含义：
+
+        --prefix=/data/pg_debug/  是将pg安装在/data/pg_debug/ 目录下，如果不指定这个参数的话默认安装在/usr/local/pgsql目录下面
+
+  CFLAGS="-O0" 是指gcc编译时不使用优化
+
+--without-readline --without-zlib 不使用readline和zlib库（建议大家安装readline库，这样在命令psql命令行下可以自动不齐，我没有找到对应的版本所以没有安装）。
+
+make
+
+make install
+
+安装就算完成。接下来初始化DB并启动pg：
+
+
+localhost:/data/pg_debug # ls
+bin  include  lib  share
+localhost:/data/pg_debug # mkdir data
+localhost:/data/pg_debug # chown postgres.postgres ./data
+localhost:/data/pg_debug # su postgres
+postgres@localhost:/data/pg_debug> /data/pg_debug/bin/initdb -D /data/pg_debug/data/
+postgres@localhost:/data/pg_debug> /data/pg_debug/bin/pg_ctl start -D /data/pg_debug/data/
+server starting
+
+
+4。调试源码:
+调试使用gdb，我使用的vi+gdb。
+
+使用psql登录pg，并查询进程号：
+
+
+postgres@localhost:/data/pg_debug> /data/pg_debug/bin/psql
+psql (9.1rc1)
+Type "help" for help.
+
+postgres=# select pg_backend_pid();
+ pg_backend_pid 
+----------------
+          21099
+(1 row)
+
+
+在另一终端里面使用gdb调试，并在be-secure.c的第305行设置断点：
+
+ localhost:/home/vince # gdb /data/pg_debug/bin/postgres <span style="font-family:Consolas, 'Courier New', Courier, mono, serif;line-height:18px;">21099</span>
+GNU gdb (GDB) SUSE (7.2-3.3)
+Copyright (C) 2010 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.  Type "show copying"
+and "show warranty" for details.
+This GDB was configured as "i586-suse-linux".
+For bug reporting instructions, please see:
+<http://www.gnu.org/software/gdb/bugs/>...
+Reading symbols from /data/pg_debug/bin/postgres...done.
+Attaching to program: /data/pg_debug/bin/postgres, process 21509
+Reading symbols from /lib/libdl.so.2...Missing separate debuginfo for /lib/libdl.so.2
+Try: zypper install -C "debuginfo(build-id)=785eb60d6a7a2b4828cd93c6738f00065322f20d"
+(no debugging symbols found)...done.
+Loaded symbols for /lib/libdl.so.2
+Reading symbols from /lib/libm.so.6...Missing separate debuginfo for /lib/libm.so.6
+Try: zypper install -C "debuginfo(build-id)=f8e95f6424bafd41f505d4a5b113c5100ffa03be"
+(no debugging symbols found)...done.
+Loaded symbols for /lib/libm.so.6
+Reading symbols from /lib/libc.so.6...Missing separate debuginfo for /lib/libc.so.6
+Try: zypper install -C "debuginfo(build-id)=6478c346f66a284b77eb5ca82ab8f2f4f9561600"
+(no debugging symbols found)...done.
+Loaded symbols for /lib/libc.so.6
+Reading symbols from /lib/ld-linux.so.2...Missing separate debuginfo for /lib/ld-linux.so.2
+Try: zypper install -C "debuginfo(build-id)=b6b00f5560b849cf9fac5e6efb9f403c21f508dd"
+(no debugging symbols found)...done.
+Loaded symbols for /lib/ld-linux.so.2
+0xffffe430 in __kernel_vsyscall ()
+(gdb) b  be-secure.c:305
+
+在psql中：
+
+postgres=# create table test3(a int);
+
+在gdb中：
+
+(gdb) b  be-secure.c:305
+Breakpoint 1 at 0x81ddb81: file be-secure.c, line 305.
+(gdb) c
+Continuing.
+ 
+Breakpoint 1, secure_read (port=0x851f680, ptr=0x84c9280, len=8192) at be-secure.c:305
+305			client_read_ended();
+(gdb) n
+309	}
+(gdb) n
+pq_recvbuf () at pqcomm.c:819
+819			if (r < 0)
+(gdb) 
+
+要调试其他代码也采用同样的方法了。
